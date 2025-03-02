@@ -169,14 +169,14 @@ function createMainWindow() {
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js')
     },
-    icon: iconPath,
+    icon: iconPath, // Используем константу
+    // Для macOS добавляем дополнительные настройки
     backgroundColor: '#ffffff'
   });
 
   mainWindow.setTitle('YaMusicBot by @pnsrc');
   mainWindow.loadURL('https://music.yandex.ru');
 
-  // Правильный обработчик события close
   mainWindow.on('close', (event) => {
     if (!isQuitting) {
       event.preventDefault();
@@ -185,187 +185,95 @@ function createMainWindow() {
     }
   });
 
-  // Инжектируем скрипт для отслеживания трека после загрузки страницы
+  // Используем более простой и надежный скрипт для извлечения информации о треке
   mainWindow.webContents.on('did-finish-load', () => {
-    // Добавляем паузу для полной загрузки страницы (помогает на Windows)
-    setTimeout(() => {
-      mainWindow.webContents.executeJavaScript(`
-        // Улучшенная функция для получения информации о текущем треке
-        function getCurrentTrackInfo() {
-          try {
-            console.log("Начинаем получение информации о треке");
-            
-            // Метод 1: Универсальный подход для всех платформ
-            const trackSelectors = [
-              '.track__name', 
-              '.d-track__name', 
-              '.track-type-player .track__name',
-              '.player-controls__track-name',
-              '.player__track-name'
-            ];
-            
-            const artistSelectors = [
-              '.track__artists', 
-              '.d-track__artists', 
-              '.track-type-player .track__artists',
-              '.player-controls__track-artists',
-              '.player__track-artists'
-            ];
-            
-            // Находим элемент трека перебором всех возможных селекторов
-            let trackElement = null;
-            for(const selector of trackSelectors) {
-              trackElement = document.querySelector(selector);
-              if(trackElement) break;
-            }
-            
-            // Находим элемент исполнителя перебором всех возможных селекторов
-            let artistElement = null;
-            for(const selector of artistSelectors) {
-              artistElement = document.querySelector(selector);
-              if(artistElement) break;
-            }
-            
-            // Если нашли оба элемента, извлекаем текст
-            if (trackElement && artistElement) {
-              const trackName = trackElement.textContent.trim();
-              const artistName = artistElement.textContent.trim();
-              
-              console.log("Найдены элементы трека:", trackName, artistName);
-              
-              // Очищаем имя трека от имени исполнителя, если оно там присутствует
-              const cleanTrackName = trackName.replace(artistName, '').trim().replace(/^[-–\s]+/, '').replace(/[-–\s]+$/, '');
-              const finalTrackName = cleanTrackName || trackName;
-              
-              // Получаем URL обложки
-              let coverUrl = "";
-              const coverSelectors = ['.track-cover', '.player-controls__track-cover', '.d-track-cover'];
-              for(const selector of coverSelectors) {
-                const coverElement = document.querySelector(selector);
-                if (coverElement) {
-                  const bgImg = window.getComputedStyle(coverElement).backgroundImage;
-                  if (bgImg && bgImg !== "none") {
-                    coverUrl = bgImg.slice(4, -1).replace(/["']/g, "");
-                    if (coverUrl && !coverUrl.startsWith('http')) {
-                      coverUrl = 'https://' + coverUrl.replace(/^\/\//, '');
-                    }
-                    break;
-                  }
-                }
-              }
-              
-              return {
-                track: finalTrackName,
-                artist: artistName,
-                cover: coverUrl,
-                url: window.location.href,
-                timestamp: new Date().toISOString()
-              };
-            }
-            
-            // Метод 2: Извлечение из заголовка страницы
-            const title = document.title;
-            const patterns = [
-              /(.*?)\\s*[-–—]\\s*(.*)\\s*[-–—]\\s*Яндекс[\\s\\.]*Музыка/i,
-              /(.*?)\\s*[-–—]\\s*(.*)\\s*[-–—]/i
-            ];
-            
-            for (const pattern of patterns) {
-              const match = title.match(pattern);
-              if (match && match.length > 2) {
-                console.log("Извлечено из заголовка:", match[1], match[2]);
-                return {
-                  artist: match[1].trim(),
-                  track: match[2].trim(),
-                  url: window.location.href,
-                  timestamp: new Date().toISOString()
-                };
-              }
-            }
-            
-            // Метод 3: Поиск элементов плеера напрямую
-            const playerElement = document.querySelector('.player, .player-controls, .d-player');
-            if (playerElement) {
-              const fullText = playerElement.textContent.trim();
-              const separators = [' – ', ' - ', ' — '];
-              
-              for (const separator of separators) {
-                const index = fullText.indexOf(separator);
-                if (index !== -1) {
-                  const artistName = fullText.substring(0, index).trim();
-                  const trackName = fullText.substring(index + separator.length).trim();
-                  
-                  console.log("Извлечено из текста плеера:", artistName, trackName);
-                  
-                  return {
-                    artist: artistName,
-                    track: trackName,
-                    url: window.location.href,
-                    timestamp: new Date().toISOString()
-                  };
-                }
-              }
-            }
-            
-            return { error: "Не удалось найти информацию о треке" };
-          } catch (error) {
-            console.error("Ошибка при получении информации о треке:", error);
-            return { error: "Произошла ошибка при получении информации о треке: " + error.message };
-          }
-        }
-
-        function setupTrackChangeObserver() {
-          const targetNodes = [
-            document.querySelector('.player-controls'),
-            document.querySelector('.player'),
-            document.querySelector('.d-player')
-          ].filter(Boolean);
+    mainWindow.webContents.executeJavaScript(`
+      function getCurrentTrackInfo() {
+        try {
+          // Используем простой подход сначала
+          const trackElement = document.querySelector('.track__name');
+          const artistElement = document.querySelector('.track__artists');
           
-          if (targetNodes.length === 0) {
-            console.error("Не удалось найти элемент плеера");
+          if (trackElement && artistElement) {
+            const trackName = trackElement.textContent.trim();
+            const artistName = artistElement.textContent.trim();
             
-            // Резервный план: наблюдаем за изменениями заголовка страницы
-            let lastTitle = document.title;
-            setInterval(() => {
-              if (document.title !== lastTitle) {
-                lastTitle = document.title;
-                const trackInfo = getCurrentTrackInfo();
-                window.electronAPI.sendTrackInfo(trackInfo);
+            // Проверка на дублирование имени артиста в названии трека
+            const cleanTrackName = trackName.replace(artistName, '').trim();
+            const finalTrackName = cleanTrackName || trackName; // Используем оригинал, если после очистки ничего не осталось
+            
+            // Получаем URL обложки
+            let coverUrl = "";
+            const coverElement = document.querySelector('.track-cover');
+            if (coverElement) {
+              const bgImg = window.getComputedStyle(coverElement).backgroundImage;
+              if (bgImg && bgImg !== "none") {
+                coverUrl = bgImg.slice(4, -1).replace(/"/g, "");
               }
-            }, 1000);
+            }
             
-            return;
+            return {
+              track: finalTrackName,
+              artist: artistName,
+              cover: coverUrl,
+              url: window.location.href,
+              timestamp: new Date().toISOString()
+            };
           }
           
-          const config = { attributes: true, childList: true, subtree: true };
+          // Если основной метод не сработал, используем запасной
+          const title = document.title;
+          const match = title.match(/(.*?)\\s*[-–—]\\s*(.*)\\s*[-–—]\\s*Яндекс\\.Музыка/i);
+          if (match && match.length > 2) {
+            return {
+              artist: match[1].trim(),
+              track: match[2].trim(),
+              url: window.location.href,
+              timestamp: new Date().toISOString()
+            };
+          }
           
-          const callback = function(mutationsList, observer) {
-            const trackInfo = getCurrentTrackInfo();
-            window.electronAPI.sendTrackInfo(trackInfo);
-          };
-          
-          const observer = new MutationObserver(callback);
-          targetNodes.forEach(node => observer.observe(node, config));
-          
-          // Получаем начальную информацию о треке
-          const initialTrackInfo = getCurrentTrackInfo();
-          window.electronAPI.sendTrackInfo(initialTrackInfo);
-          
-          // Периодическая проверка на случай, если MutationObserver не сработает
-          setInterval(() => {
-            const trackInfo = getCurrentTrackInfo();
-            window.electronAPI.sendTrackInfo(trackInfo);
-          }, 5000);
+          return { error: "Не удалось найти информацию о треке" };
+        } catch (error) {
+          console.error("Ошибка при получении информации о треке:", error);
+          return { error: "Произошла ошибка при получении информации о треке" };
         }
+      }
 
-        // Запускаем наблюдатель после полной загрузки
-        if (document.readyState === 'complete') {
-          setupTrackChangeObserver();
-        } else {
-          window.addEventListener('load', setupTrackChangeObserver);
+      function setupTrackChangeObserver() {
+        const targetNode = document.querySelector('.player-controls');
+        
+        if (!targetNode) {
+          console.error("Не удалось найти элемент плеера");
+          return;
         }
-      `);
-    }, 2000); // Задержка 2 секунды для полной загрузки страницы
+      
+        const config = { attributes: true, childList: true, subtree: true };
+        
+        const callback = function(mutationsList, observer) {
+          for (const mutation of mutationsList) {
+            if (mutation.type === 'childList' || mutation.type === 'attributes') {
+              const trackInfo = getCurrentTrackInfo();
+              window.electronAPI.sendTrackInfo(trackInfo);
+            }
+          }
+        };
+        
+        const observer = new MutationObserver(callback);
+        observer.observe(targetNode, config);
+        
+        // Получаем начальную информацию о треке
+        const initialTrackInfo = getCurrentTrackInfo();
+        window.electronAPI.sendTrackInfo(initialTrackInfo);
+      }
+
+      // Запускаем наблюдатель после полной загрузки
+      if (document.readyState === 'complete') {
+        setupTrackChangeObserver();
+      } else {
+        window.addEventListener('load', setupTrackChangeObserver);
+      }
+    `);
   });
 }
 
