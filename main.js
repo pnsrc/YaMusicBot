@@ -73,7 +73,7 @@ function startTwitchBot() {
                 
                 // Отправляем приветственное сообщение с упоминанием бренда
                 setTimeout(() => {
-                    client.say(twitchSettings.twitchChannel, 'Hello everyone! YaMusicBot by @pnsrc is launched. Use !track to get information about the current track 🎵');
+                    client.say(twitchSettings.twitchChannel, 'Всем привет! Этот бот поможет следить за музыкой в эфире. Используйте !track или напишите "что играет", чтобы узнать текущий трек. YaMusicBot by @pnsrc 🎵');
                 }, 2000);
             })
             .catch(err => console.error('Twitch connection error:', err));
@@ -98,15 +98,15 @@ function startTwitchBot() {
                     .then(response => response.json())
                     .then(data => {
                         if (data && data.track && data.artist) {
-                            const response = `@${tags.username}, now playing: ${data.artist} - ${data.track} 🎵`;
+                            const response = `@${tags.username}, сейчас играет: ${data.artist} - ${data.track} 🎵`;
                             client.say(channel, response);
                         } else {
-                            client.say(channel, `@${tags.username}, track information unavailable 😔`);
+                            client.say(channel, `@${tags.username}, что-то пошло не так, и информация о треке не доступно 😔`);
                         }
                     })
                     .catch(err => {
                         console.error('Error fetching track data:', err);
-                        client.say(channel, `@${tags.username}, error getting track information 😔`);
+                        client.say(channel, `@${tags.username}, ошибка 😔`);
                     });
             }
         });
@@ -424,7 +424,7 @@ ipcMain.on('track-info', (event, trackInfo) => {
     
     // Отправляем уведомление о новом треке в чат Twitch только если включен автоанонс
     if (client && client.readyState() === 'OPEN') {
-      const message = `Now playing: ${trackInfo.artist} - ${trackInfo.track} 🎵`;
+      const message = `Сейчас играет: ${trackInfo.artist} - ${trackInfo.track} 🎵`;
       client.say(twitchSettings.twitchChannel, message)
         .then(() => console.log('New track notification sent'))
         .catch(err => console.error('Error sending track notification:', err));
