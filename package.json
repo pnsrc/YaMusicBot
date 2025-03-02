@@ -38,7 +38,7 @@
     ],
     "win": {
       "target": "zip",
-      "icon": "build/icon.ico"
+      "icon": "icons/icon.ico"
     },
     "mac": {
       "category": "public.app-category.music"
