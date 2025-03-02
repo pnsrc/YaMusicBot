@@ -369,7 +369,7 @@ mainWindow.webContents.on('did-finish-load', () => {
         ];
         
         let targetNode = null;
-        
+
         // Находим первый существующий элемент
         for (const selector of possibleTargets) {
           targetNode = document.querySelector(selector);
