@@ -27,6 +27,7 @@ let apiUrl = store.get('apiUrl') || 'https://your-api-endpoint.com/track-info';
 let currentTrackInfo = {};
 
 
+
 // Загрузка настроек для Twitch-бота с предустановленными значениями
 let twitchSettings = {
   twitchChannel: store.get('twitchChannel') || 'SeRRRg0',
@@ -138,12 +139,23 @@ function startServer() {
   });
 }
 
-// В начале файла добавим константу с путем к иконке для удобства
-const iconPath = path.join(__dirname, 'icons/icon.png');
+// Улучшенная поддержка путей к иконкам на разных ОС
+const iconPath = (() => {
+  // Выбираем подходящий формат иконки в зависимости от платформы
+  if (process.platform === 'win32') {
+    const icoPath = path.join(__dirname, 'icons', 'icon.ico');
+    if (fs.existsSync(icoPath)) return icoPath;
+  }
+  return path.join(__dirname, 'icons', 'icon.png');
+})();
 
-// Проверим существование файла иконки при запуске
+// Проверяем наличие иконки
 if (!fs.existsSync(iconPath)) {
   console.error(`Error: Icon file not found at path: ${iconPath}`);
+  // Создаем директорию icons если ее нет
+  if (!fs.existsSync(path.join(__dirname, 'icons'))) {
+    fs.mkdirSync(path.join(__dirname, 'icons'));
+  }
 }
 
 // Создание основного окна с упрощенным скриптом извлечения информации о треке
@@ -157,14 +169,14 @@ function createMainWindow() {
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js')
     },
-    icon: iconPath, // Используем константу
-    // Для macOS добавляем дополнительные настройки
+    icon: iconPath,
     backgroundColor: '#ffffff'
   });
 
   mainWindow.setTitle('YaMusicBot by @pnsrc');
   mainWindow.loadURL('https://music.yandex.ru');
 
+  // Правильный обработчик события close
   mainWindow.on('close', (event) => {
     if (!isQuitting) {
       event.preventDefault();
@@ -173,111 +185,244 @@ function createMainWindow() {
     }
   });
 
-  // Используем более простой и надежный скрипт для извлечения информации о треке
+  // Инжектируем скрипт для отслеживания трека после загрузки страницы
   mainWindow.webContents.on('did-finish-load', () => {
-    mainWindow.webContents.executeJavaScript(`
-      function getCurrentTrackInfo() {
-        try {
-          // Используем простой подход сначала
-          const trackElement = document.querySelector('.track__name');
-          const artistElement = document.querySelector('.track__artists');
-          
-          if (trackElement && artistElement) {
-            const trackName = trackElement.textContent.trim();
-            const artistName = artistElement.textContent.trim();
+    // Добавляем паузу для полной загрузки страницы (помогает на Windows)
+    setTimeout(() => {
+      mainWindow.webContents.executeJavaScript(`
+        // Улучшенная функция для получения информации о текущем треке
+        function getCurrentTrackInfo() {
+          try {
+            console.log("Начинаем получение информации о треке");
             
-            // Проверка на дублирование имени артиста в названии трека
-            const cleanTrackName = trackName.replace(artistName, '').trim();
-            const finalTrackName = cleanTrackName || trackName; // Используем оригинал, если после очистки ничего не осталось
+            // Метод 1: Универсальный подход для всех платформ
+            const trackSelectors = [
+              '.track__name', 
+              '.d-track__name', 
+              '.track-type-player .track__name',
+              '.player-controls__track-name',
+              '.player__track-name'
+            ];
             
-            // Получаем URL обложки
-            let coverUrl = "";
-            const coverElement = document.querySelector('.track-cover');
-            if (coverElement) {
-              const bgImg = window.getComputedStyle(coverElement).backgroundImage;
-              if (bgImg && bgImg !== "none") {
-                coverUrl = bgImg.slice(4, -1).replace(/"/g, "");
+            const artistSelectors = [
+              '.track__artists', 
+              '.d-track__artists', 
+              '.track-type-player .track__artists',
+              '.player-controls__track-artists',
+              '.player__track-artists'
+            ];
+            
+            // Находим элемент трека перебором всех возможных селекторов
+            let trackElement = null;
+            for(const selector of trackSelectors) {
+              trackElement = document.querySelector(selector);
+              if(trackElement) break;
+            }
+            
+            // Находим элемент исполнителя перебором всех возможных селекторов
+            let artistElement = null;
+            for(const selector of artistSelectors) {
+              artistElement = document.querySelector(selector);
+              if(artistElement) break;
+            }
+            
+            // Если нашли оба элемента, извлекаем текст
+            if (trackElement && artistElement) {
+              const trackName = trackElement.textContent.trim();
+              const artistName = artistElement.textContent.trim();
+              
+              console.log("Найдены элементы трека:", trackName, artistName);
+              
+              // Очищаем имя трека от имени исполнителя, если оно там присутствует
+              const cleanTrackName = trackName.replace(artistName, '').trim().replace(/^[-–\s]+/, '').replace(/[-–\s]+$/, '');
+              const finalTrackName = cleanTrackName || trackName;
+              
+              // Получаем URL обложки
+              let coverUrl = "";
+              const coverSelectors = ['.track-cover', '.player-controls__track-cover', '.d-track-cover'];
+              for(const selector of coverSelectors) {
+                const coverElement = document.querySelector(selector);
+                if (coverElement) {
+                  const bgImg = window.getComputedStyle(coverElement).backgroundImage;
+                  if (bgImg && bgImg !== "none") {
+                    coverUrl = bgImg.slice(4, -1).replace(/["']/g, "");
+                    if (coverUrl && !coverUrl.startsWith('http')) {
+                      coverUrl = 'https://' + coverUrl.replace(/^\/\//, '');
+                    }
+                    break;
+                  }
+                }
+              }
+              
+              return {
+                track: finalTrackName,
+                artist: artistName,
+                cover: coverUrl,
+                url: window.location.href,
+                timestamp: new Date().toISOString()
+              };
+            }
+            
+            // Метод 2: Извлечение из заголовка страницы
+            const title = document.title;
+            const patterns = [
+              /(.*?)\\s*[-–—]\\s*(.*)\\s*[-–—]\\s*Яндекс[\\s\\.]*Музыка/i,
+              /(.*?)\\s*[-–—]\\s*(.*)\\s*[-–—]/i
+            ];
+            
+            for (const pattern of patterns) {
+              const match = title.match(pattern);
+              if (match && match.length > 2) {
+                console.log("Извлечено из заголовка:", match[1], match[2]);
+                return {
+                  artist: match[1].trim(),
+                  track: match[2].trim(),
+                  url: window.location.href,
+                  timestamp: new Date().toISOString()
+                };
               }
             }
             
-            return {
-              track: finalTrackName,
-              artist: artistName,
-              cover: coverUrl,
-              url: window.location.href,
-              timestamp: new Date().toISOString()
-            };
-          }
-          
-          // Если основной метод не сработал, используем запасной
-          const title = document.title;
-          const match = title.match(/(.*?)\\s*[-–—]\\s*(.*)\\s*[-–—]\\s*Яндекс\\.Музыка/i);
-          if (match && match.length > 2) {
-            return {
-              artist: match[1].trim(),
-              track: match[2].trim(),
-              url: window.location.href,
-              timestamp: new Date().toISOString()
-            };
-          }
-          
-          return { error: "Не удалось найти информацию о треке" };
-        } catch (error) {
-          console.error("Ошибка при получении информации о треке:", error);
-          return { error: "Произошла ошибка при получении информации о треке" };
-        }
-      }
-
-      function setupTrackChangeObserver() {
-        const targetNode = document.querySelector('.player-controls');
-        
-        if (!targetNode) {
-          console.error("Не удалось найти элемент плеера");
-          return;
-        }
-      
-        const config = { attributes: true, childList: true, subtree: true };
-        
-        const callback = function(mutationsList, observer) {
-          for (const mutation of mutationsList) {
-            if (mutation.type === 'childList' || mutation.type === 'attributes') {
-              const trackInfo = getCurrentTrackInfo();
-              window.electronAPI.sendTrackInfo(trackInfo);
+            // Метод 3: Поиск элементов плеера напрямую
+            const playerElement = document.querySelector('.player, .player-controls, .d-player');
+            if (playerElement) {
+              const fullText = playerElement.textContent.trim();
+              const separators = [' – ', ' - ', ' — '];
+              
+              for (const separator of separators) {
+                const index = fullText.indexOf(separator);
+                if (index !== -1) {
+                  const artistName = fullText.substring(0, index).trim();
+                  const trackName = fullText.substring(index + separator.length).trim();
+                  
+                  console.log("Извлечено из текста плеера:", artistName, trackName);
+                  
+                  return {
+                    artist: artistName,
+                    track: trackName,
+                    url: window.location.href,
+                    timestamp: new Date().toISOString()
+                  };
+                }
+              }
             }
+            
+            return { error: "Не удалось найти информацию о треке" };
+          } catch (error) {
+            console.error("Ошибка при получении информации о треке:", error);
+            return { error: "Произошла ошибка при получении информации о треке: " + error.message };
           }
-        };
-        
-        const observer = new MutationObserver(callback);
-        observer.observe(targetNode, config);
-        
-        // Получаем начальную информацию о треке
-        const initialTrackInfo = getCurrentTrackInfo();
-        window.electronAPI.sendTrackInfo(initialTrackInfo);
-      }
+        }
 
-      // Запускаем наблюдатель после полной загрузки
-      if (document.readyState === 'complete') {
-        setupTrackChangeObserver();
-      } else {
-        window.addEventListener('load', setupTrackChangeObserver);
-      }
-    `);
+        function setupTrackChangeObserver() {
+          const targetNodes = [
+            document.querySelector('.player-controls'),
+            document.querySelector('.player'),
+            document.querySelector('.d-player')
+          ].filter(Boolean);
+          
+          if (targetNodes.length === 0) {
+            console.error("Не удалось найти элемент плеера");
+            
+            // Резервный план: наблюдаем за изменениями заголовка страницы
+            let lastTitle = document.title;
+            setInterval(() => {
+              if (document.title !== lastTitle) {
+                lastTitle = document.title;
+                const trackInfo = getCurrentTrackInfo();
+                window.electronAPI.sendTrackInfo(trackInfo);
+              }
+            }, 1000);
+            
+            return;
+          }
+          
+          const config = { attributes: true, childList: true, subtree: true };
+          
+          const callback = function(mutationsList, observer) {
+            const trackInfo = getCurrentTrackInfo();
+            window.electronAPI.sendTrackInfo(trackInfo);
+          };
+          
+          const observer = new MutationObserver(callback);
+          targetNodes.forEach(node => observer.observe(node, config));
+          
+          // Получаем начальную информацию о треке
+          const initialTrackInfo = getCurrentTrackInfo();
+          window.electronAPI.sendTrackInfo(initialTrackInfo);
+          
+          // Периодическая проверка на случай, если MutationObserver не сработает
+          setInterval(() => {
+            const trackInfo = getCurrentTrackInfo();
+            window.electronAPI.sendTrackInfo(trackInfo);
+          }, 5000);
+        }
+
+        // Запускаем наблюдатель после полной загрузки
+        if (document.readyState === 'complete') {
+          setupTrackChangeObserver();
+        } else {
+          window.addEventListener('load', setupTrackChangeObserver);
+        }
+      `);
+    }, 2000); // Задержка 2 секунды для полной загрузки страницы
   });
 }
 
-// Создание иконки в трее
+// Создание иконки в трее с расширенным меню
 function createTray() {
   try {
-    tray = new Tray(iconPath); // Используем константу
+    tray = new Tray(iconPath);
     
+    // Расширенное меню с настройками Twitch и индикацией статуса
     const contextMenu = Menu.buildFromTemplate([
       { 
-        label: 'Показать YaMusicBot', 
-        click: () => mainWindow.show() 
+        label: 'YaMusicBot by @pnsrc',
+        enabled: false,
+        icon: iconPath // Некоторые системы могут отображать эту иконку
+      },
+      { type: 'separator' },
+      { 
+        label: 'Показать плеер', 
+        click: () => mainWindow.show()
       },
       { 
         label: 'Настройки', 
-        click: () => createSettingsWindow() 
+        click: () => createSettingsWindow(),
+        submenu: [
+          { 
+            label: `Twitch: ${twitchSettings.twitchChannel}`,
+            click: () => createSettingsWindow()
+          },
+          {
+            label: `Автооповещения: ${twitchSettings.autoAnnounce ? 'Вкл' : 'Выкл'}`,
+            click: () => {
+              twitchSettings.autoAnnounce = !twitchSettings.autoAnnounce;
+              store.set('autoAnnounce', twitchSettings.autoAnnounce);
+              createTray(); // Обновляем меню
+            }
+          }
+        ]
+      },
+      { type: 'separator' },
+      {
+        label: `Twitch статус: ${client && client.readyState() === 'OPEN' ? '🟢 Онлайн' : '🔴 Офлайн'}`,
+        click: () => {
+          if (client && client.readyState() !== 'OPEN') {
+            dialog.showMessageBox(mainWindow, {
+              type: 'info',
+              title: 'Статус Twitch',
+              message: 'Бот не подключен. Хотите подключиться?',
+              buttons: ['Да', 'Нет'],
+              defaultId: 0
+            }).then(result => {
+              if (result.response === 0) {
+                updateTwitchClient();
+                startTwitchBot();
+              }
+            });
+          }
+        }
       },
       { type: 'separator' },
       { 
@@ -297,6 +442,23 @@ function createTray() {
     });
   } catch (error) {
     console.error('Error creating tray icon:', error);
+    
+    // Аварийный вариант для Windows
+    if (process.platform === 'win32') {
+      try {
+        // Пробуем создать трей без иконки (в Windows это иногда работает)
+        tray = new Tray(path.join(__dirname, 'icons', 'icon.png'));
+        const contextMenu = Menu.buildFromTemplate([
+          { label: 'Show', click: () => mainWindow.show() },
+          { label: 'Settings', click: () => createSettingsWindow() },
+          { type: 'separator' },
+          { label: 'Exit', click: () => { isQuitting = true; app.quit(); } }
+        ]);
+        tray.setContextMenu(contextMenu);
+      } catch (err) {
+        console.error('Failed to create tray even with fallback:', err);
+      }
+    }
   }
 }
 
@@ -340,16 +502,19 @@ function createSettingsWindow() {
 // Обработка межпроцессорных сообщений - добавляем автоматическое оповещение
 let lastTrackInfo = {}; // Для отслеживания изменений трека
 
+// Модифицируем обработчик событий track-info чтобы учитывать настройку autoAnnounce
 ipcMain.on('track-info', (event, trackInfo) => {
+  console.log('Track info received:', trackInfo);
   
   // Сохраняем информацию о текущем треке
   currentTrackInfo = trackInfo;
   
   // Проверяем, изменился ли трек и стоит ли отправить уведомление
-  if (trackInfo && trackInfo.track && trackInfo.artist && 
+  if (twitchSettings.autoAnnounce && 
+      trackInfo && trackInfo.track && trackInfo.artist && 
       (lastTrackInfo.track !== trackInfo.track || lastTrackInfo.artist !== trackInfo.artist)) {
     
-    // Отправляем уведомление о новом треке в чат Twitch
+    // Отправляем уведомление о новом треке в чат Twitch только если включен автоанонс
     if (client && client.readyState() === 'OPEN') {
       const message = `Now playing: ${trackInfo.artist} - ${trackInfo.track} 🎵`;
       client.say(twitchSettings.twitchChannel, message)
@@ -380,7 +545,7 @@ ipcMain.handle('get-settings', async () => {
 // Модифицируйте функцию ipcMain.on('save-settings')
 ipcMain.on('save-settings', (event, settings) => {
   console.log('Saving settings:', settings);
-
+  
   if (settings.apiUrl !== undefined) {
     apiUrl = settings.apiUrl;
     store.set('apiUrl', apiUrl);
@@ -412,6 +577,7 @@ ipcMain.on('save-settings', (event, settings) => {
     client.disconnect().then(() => {
       updateTwitchClient();
       startTwitchBot();
+      updateTrayMenu(); // Обновляем меню трея
     });
   }
   
@@ -420,7 +586,37 @@ ipcMain.on('save-settings', (event, settings) => {
   }
 });
 
-
+// Добавьте обработчик для проверки соединения с Twitch
+ipcMain.handle('test-twitch-connection', async (event, settings) => {
+  try {
+    // Создаем временного клиента для тестирования
+    const testClient = new tmi.Client({
+      options: { debug: false },
+      connection: {
+        reconnect: false,
+        secure: true
+      },
+      identity: {
+        username: settings.twitchUsername,
+        password: settings.twitchToken
+      },
+      channels: [settings.twitchChannel]
+    });
+    
+    // Пробуем подключиться
+    await testClient.connect();
+    // Если подключение успешно, отключаемся
+    await testClient.disconnect();
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Test connection failed:', error);
+    return { 
+      success: false, 
+      error: error.message || 'Unknown error' 
+    };
+  }
+});
 
 // Функция обновления клиента Twitch с новыми настройками
 function updateTwitchClient() {
@@ -454,43 +650,66 @@ async function sendTrackInfoToAPI(trackData) {
     }
     
     const responseData = await response.json();
-
+    console.log("API response:", responseData);
+    
   } catch (error) {
     console.error("Error sending data to API:", error);
   }
 }
 
-// Добавьте обработчик для проверки соединения с Twitch
-ipcMain.handle('test-twitch-connection', async (event, settings) => {
-  try {
-    // Создаем временного клиента для тестирования
-    const testClient = new tmi.Client({
-      options: { debug: false },
-      connection: {
-        reconnect: false,
-        secure: true
-      },
-      identity: {
-        username: settings.twitchUsername,
-        password: settings.twitchToken
-      },
-      channels: [settings.twitchChannel]
-    });
-    
-    // Пробуем подключиться
-    await testClient.connect();
-    // Если подключение успешно, отключаемся
-    await testClient.disconnect();
-    
-    return { success: true };
-  } catch (error) {
-    console.error('Test connection failed:', error);
-    return { 
-      success: false, 
-      error: error.message || 'Unknown error' 
-    };
-  }
-});
+// Добавим функцию для обновления меню трея
+function updateTrayMenu() {
+  if (!tray) return;
+  
+  const contextMenu = Menu.buildFromTemplate([
+    { 
+      label: 'YaMusicBot by @pnsrc',
+      enabled: false
+    },
+    { type: 'separator' },
+    { 
+      label: 'Показать плеер', 
+      click: () => mainWindow.show()
+    },
+    { 
+      label: 'Настройки', 
+      click: () => createSettingsWindow()
+    },
+    { type: 'separator' },
+    {
+      label: `Twitch: ${twitchSettings.twitchChannel}`,
+      click: () => createSettingsWindow()
+    },
+    {
+      label: `Автооповещения: ${twitchSettings.autoAnnounce ? 'Вкл' : 'Выкл'}`,
+      click: () => {
+        twitchSettings.autoAnnounce = !twitchSettings.autoAnnounce;
+        store.set('autoAnnounce', twitchSettings.autoAnnounce);
+        updateTrayMenu();
+      }
+    },
+    { type: 'separator' },
+    {
+      label: `Twitch статус: ${client && client.readyState() === 'OPEN' ? '🟢 Онлайн' : '🔴 Офлайн'}`,
+      click: () => {
+        if (client && client.readyState() !== 'OPEN') {
+          updateTwitchClient();
+          startTwitchBot();
+        }
+      }
+    },
+    { type: 'separator' },
+    { 
+      label: 'Выход', 
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      } 
+    }
+  ]);
+  
+  tray.setContextMenu(contextMenu);
+}
 
 // Инициализация приложения
 app.whenReady().then(() => {
