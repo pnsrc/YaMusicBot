@@ -140,27 +140,47 @@ function startServer() {
 }
 
 // Улучшенная поддержка путей к иконкам на разных ОС
-const iconPath = (() => {
-  // Выбираем подходящий формат иконки в зависимости от платформы
+const getIconPath = () => {
+  // Сначала проверяем, существует ли директория icons
+  const iconsDir = path.join(__dirname, 'icons');
+  
+  // Если директория не существует, создаём её
+  if (!fs.existsSync(iconsDir)) {
+    try {
+      fs.mkdirSync(iconsDir, { recursive: true });
+      console.log(`Created icons directory at ${iconsDir}`);
+    } catch (err) {
+      console.error(`Error creating icons directory: ${err.message}`);
+      // Возвращаем null, если не можем создать директорию
+      return null;
+    }
+  }
+  
+  // Теперь проверяем наличие иконок
   if (process.platform === 'win32') {
-    const icoPath = path.join(__dirname, 'icons', 'icon.ico');
-    if (fs.existsSync(icoPath)) return icoPath;
+    const icoPath = path.join(iconsDir, 'icon.ico');
+    if (fs.existsSync(icoPath)) {
+      return icoPath;
+    }
   }
-  return path.join(__dirname, 'icons', 'icon.png');
-})();
-
-// Проверяем наличие иконки
-if (!fs.existsSync(iconPath)) {
-  console.error(`Error: Icon file not found at path: ${iconPath}`);
-  // Создаем директорию icons если ее нет
-  if (!fs.existsSync(path.join(__dirname, 'icons'))) {
-    fs.mkdirSync(path.join(__dirname, 'icons'));
+  
+  // Проверяем наличие PNG иконки
+  const pngPath = path.join(iconsDir, 'icon.png');
+  if (fs.existsSync(pngPath)) {
+    return pngPath;
   }
-}
+  
+  // Если иконки нет, сообщаем об этом
+  console.warn(`Warning: No icon files found in ${iconsDir}`);
+  return null;
+};
 
-// Создание основного окна с упрощенным скриптом извлечения информации о треке
+// Получаем путь к иконке
+const iconPath = getIconPath();
+
+// Создание основного окна без указания иконки, если её нет
 function createMainWindow() {
-  mainWindow = new BrowserWindow({
+  const windowOptions = {
     width: 1000,
     height: 800,
     title: 'YaMusicBot by @pnsrc',
@@ -169,10 +189,15 @@ function createMainWindow() {
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js')
     },
-    icon: iconPath, // Используем константу
-    // Для macOS добавляем дополнительные настройки
     backgroundColor: '#ffffff'
-  });
+  };
+  
+  // Добавляем иконку только если она существует
+  if (iconPath) {
+    windowOptions.icon = iconPath;
+  }
+  
+  mainWindow = new BrowserWindow(windowOptions);
 
   mainWindow.setTitle('YaMusicBot by @pnsrc');
   mainWindow.loadURL('https://music.yandex.ru');
@@ -277,10 +302,23 @@ function createMainWindow() {
   });
 }
 
-// Создание иконки в трее с расширенным меню
+// Создание иконки в трее
 function createTray() {
   try {
-    tray = new Tray(iconPath);
+    // Если иконка не найдена, создаём пустую иконку (1x1 пиксель)
+    if (!iconPath) {
+      console.warn("No icon found, creating a basic tray icon");
+      // Создаем пустой файл иконки
+      const emptyIconPath = path.join(__dirname, 'empty-icon.png');
+      if (!fs.existsSync(emptyIconPath)) {
+        // Создаем пустой 1x1 пиксель PNG файл (минимальный рабочий PNG)
+        const emptyPngBuffer = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+        fs.writeFileSync(emptyIconPath, emptyPngBuffer);
+      }
+      tray = new Tray(emptyIconPath);
+    } else {
+      tray = new Tray(iconPath);
+    }
     
     // Расширенное меню с настройками Twitch и индикацией статуса
     const contextMenu = Menu.buildFromTemplate([
@@ -366,6 +404,9 @@ function createTray() {
       } catch (err) {
         console.error('Failed to create tray even with fallback:', err);
       }
+    } else {
+      // Аварийный вариант без создания трея
+      console.error('Could not create tray icon, continuing without it');
     }
   }
 }
