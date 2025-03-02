@@ -13,7 +13,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // Обработчик для получения ответов от API
   onApiResponse: (callback) => ipcRenderer.on('api-response', (_, data) => callback(data)),
-  
-  // Обработчик для получения ошибок от API
+
+  // Добавьте эту функцию в contextBridge.exposeInMainWorld
+  testTwitchConnection: (settings) => ipcRenderer.invoke('test-twitch-connection', settings),
+
+  // Обработчик для получения ошибок 
+  // от API
   onApiError: (callback) => ipcRenderer.on('api-error', (_, error) => callback(error))
 });

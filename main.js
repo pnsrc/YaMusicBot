@@ -26,13 +26,19 @@ let apiUrl = store.get('apiUrl') || 'https://your-api-endpoint.com/track-info';
 // Для хранения информации о текущем треке
 let currentTrackInfo = {};
 
-// Загрузка настроек для Twitch-бота
+
+// Загрузка настроек для Twitch-бота с предустановленными значениями
 let twitchSettings = {
-  twitchChannel: store.get('twitchChannel') || process.env.TWITCH_CHANNEL,
-  twitchUsername: store.get('twitchUsername') || process.env.TWITCH_BOT_USERNAME,
-  twitchToken: store.get('twitchToken') || process.env.TWITCH_OAUTH_TOKEN,
+  twitchChannel: store.get('twitchChannel') || 'SeRRRg0',
+  twitchUsername: store.get('twitchUsername') || 'yamusicbot',
+  twitchToken: store.get('twitchToken') || 'oauth:7hxajb9m1ta8fd65wri3hpu33hkw55',
   autoAnnounce: store.get('autoAnnounce') !== undefined ? store.get('autoAnnounce') : true
 };
+
+// Сохраняем предустановленные настройки в хранилище, если они не были установлены ранее
+if (!store.get('twitchChannel')) store.set('twitchChannel', twitchSettings.twitchChannel);
+if (!store.get('twitchUsername')) store.set('twitchUsername', twitchSettings.twitchUsername);
+if (!store.get('twitchToken')) store.set('twitchToken', twitchSettings.twitchToken);
 
 // Настройка Twitch-бота
 let client = new tmi.Client({
@@ -335,7 +341,6 @@ function createSettingsWindow() {
 let lastTrackInfo = {}; // Для отслеживания изменений трека
 
 ipcMain.on('track-info', (event, trackInfo) => {
-  console.log('Track info received:', trackInfo);
   
   // Сохраняем информацию о текущем треке
   currentTrackInfo = trackInfo;
@@ -367,14 +372,15 @@ ipcMain.handle('get-settings', async () => {
     twitchChannel: twitchSettings.twitchChannel || '',
     twitchUsername: twitchSettings.twitchUsername || '',
     twitchToken: twitchSettings.twitchToken || '',
-    autoAnnounce: twitchSettings.autoAnnounce
+    autoAnnounce: twitchSettings.autoAnnounce,
+    twitchConnected: client && client.readyState() === 'OPEN'
   };
 });
 
 // Модифицируйте функцию ipcMain.on('save-settings')
 ipcMain.on('save-settings', (event, settings) => {
   console.log('Saving settings:', settings);
-  
+
   if (settings.apiUrl !== undefined) {
     apiUrl = settings.apiUrl;
     store.set('apiUrl', apiUrl);
@@ -414,6 +420,8 @@ ipcMain.on('save-settings', (event, settings) => {
   }
 });
 
+
+
 // Функция обновления клиента Twitch с новыми настройками
 function updateTwitchClient() {
   client = new tmi.Client({
@@ -446,12 +454,43 @@ async function sendTrackInfoToAPI(trackData) {
     }
     
     const responseData = await response.json();
-    console.log("API response:", responseData);
-    
+
   } catch (error) {
     console.error("Error sending data to API:", error);
   }
 }
+
+// Добавьте обработчик для проверки соединения с Twitch
+ipcMain.handle('test-twitch-connection', async (event, settings) => {
+  try {
+    // Создаем временного клиента для тестирования
+    const testClient = new tmi.Client({
+      options: { debug: false },
+      connection: {
+        reconnect: false,
+        secure: true
+      },
+      identity: {
+        username: settings.twitchUsername,
+        password: settings.twitchToken
+      },
+      channels: [settings.twitchChannel]
+    });
+    
+    // Пробуем подключиться
+    await testClient.connect();
+    // Если подключение успешно, отключаемся
+    await testClient.disconnect();
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Test connection failed:', error);
+    return { 
+      success: false, 
+      error: error.message || 'Unknown error' 
+    };
+  }
+});
 
 // Инициализация приложения
 app.whenReady().then(() => {

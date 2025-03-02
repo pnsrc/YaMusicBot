@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Настройки YaMusicBot</title>
+  <title>Настройки YaMusicBot by @pnsrc</title>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -59,6 +59,22 @@
       color: #666;
       margin-top: 3px;
     }
+    .status {
+      font-size: 14px;
+      padding: 8px;
+      border-radius: 4px;
+      margin-top: 10px;
+    }
+    .status.connected {
+      background-color: #e8f5e9;
+      color: #2e7d32;
+      border: 1px solid #a5d6a7;
+    }
+    .status.disconnected {
+      background-color: #ffebee;
+      color: #c62828;
+      border: 1px solid #ef9a9a;
+    }
   </style>
 </head>
 <body>
@@ -75,15 +91,16 @@
 
   <div class="section">
     <h3>Настройки Twitch-бота</h3>
+    <div class="status" id="twitchStatus">Статус соединения: проверка...</div>
     <div class="form-group">
       <label for="twitchChannel">Канал Twitch</label>
-      <input type="text" id="twitchChannel" placeholder="ваш_канал">
-      <div class="help-text">Название канала без символа # (например: "pnsrc")</div>
+      <input type="text" id="twitchChannel" placeholder="SeRRRg0">
+      <div class="help-text">Название канала без символа # (например: "SeRRRg0")</div>
     </div>
     <div class="form-group">
       <label for="twitchUsername">Имя пользователя бота</label>
-      <input type="text" id="twitchUsername" placeholder="имя_бота">
-      <div class="help-text">Имя аккаунта, под которым будет работать бот</div>
+      <input type="text" id="twitchUsername" placeholder="yamusicbot">
+      <div class="help-text">Имя аккаунта бота на Twitch</div>
     </div>
     <div class="form-group">
       <label for="twitchToken">OAuth-токен</label>
@@ -91,14 +108,15 @@
       <div class="help-text">Токен доступа к Twitch API, начинающийся с "oauth:"</div>
     </div>
     <div class="form-group">
-      <label for="autoAnnounce">
-        <input type="checkbox" id="autoAnnounce" checked>
-        Автоматически объявлять новые треки
+      <label>
+        <input type="checkbox" id="autoAnnounce"> 
+        Автоматически объявлять новые треки в чате
       </label>
     </div>
   </div>
   
   <div class="buttons">
+    <button id="testBtn" class="test">Проверить соединение</button>
     <button id="cancelBtn" class="cancel">Отмена</button>
     <button id="saveBtn" class="save">Сохранить</button>
   </div>
@@ -107,16 +125,30 @@
     document.addEventListener('DOMContentLoaded', async () => {
       // Загружаем текущие настройки
       const settings = await window.electronAPI.getSettings();
-
+      
       // Заполняем поля формы
       document.getElementById('apiUrl').value = settings.apiUrl || '';
       document.getElementById('twitchChannel').value = settings.twitchChannel || '';
       document.getElementById('twitchUsername').value = settings.twitchUsername || '';
       document.getElementById('twitchToken').value = settings.twitchToken || '';
+      document.getElementById('autoAnnounce').checked = settings.autoAnnounce || false;
       
-      if (settings.autoAnnounce !== undefined) {
-        document.getElementById('autoAnnounce').checked = settings.autoAnnounce;
-      }
+      // Обновляем статус соединения
+      updateConnectionStatus(settings.twitchConnected || false);
+      
+      // Обработчик проверки соединения
+      document.getElementById('testBtn').addEventListener('click', async () => {
+        const result = await window.electronAPI.testTwitchConnection({
+          twitchChannel: document.getElementById('twitchChannel').value,
+          twitchUsername: document.getElementById('twitchUsername').value,
+          twitchToken: document.getElementById('twitchToken').value
+        });
+        
+        updateConnectionStatus(result.success);
+        if (!result.success) {
+          alert(`Ошибка подключения: ${result.error}`);
+        }
+      });
       
       // Обработчик сохранения настроек
       document.getElementById('saveBtn').addEventListener('click', () => {
@@ -135,6 +167,18 @@
       document.getElementById('cancelBtn').addEventListener('click', () => {
         window.close();
       });
+      
+      // Функция обновления статуса соединения
+      function updateConnectionStatus(connected) {
+        const statusEl = document.getElementById('twitchStatus');
+        if (connected) {
+          statusEl.textContent = 'Статус соединения: Подключено';
+          statusEl.className = 'status connected';
+        } else {
+          statusEl.textContent = 'Статус соединения: Не подключено';
+          statusEl.className = 'status disconnected';
+        }
+      }
     });
   </script>
 </body>
