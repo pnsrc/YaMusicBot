@@ -53,25 +53,25 @@ function startTwitchBot() {
     try {
         // Проверяем настройки окружения
         if (!twitchSettings.twitchUsername || !twitchSettings.twitchToken || !twitchSettings.twitchChannel) {
-            console.error('Ошибка: не заданы переменные окружения для Twitch-бота');
+            console.error('Error: Twitch bot environment variables not set');
             return;
         }
         
-        console.log(`Подключаемся к Twitch как ${twitchSettings.twitchUsername} в канал ${twitchSettings.twitchChannel}`);
+        console.log(`Connecting to Twitch as ${twitchSettings.twitchUsername} in channel ${twitchSettings.twitchChannel}`);
 
         // Подключаемся к Twitch
         client.connect()
             .then(() => {
-                console.log('Соединение с Twitch успешно');
+                console.log('Twitch connection successful');
                 
                 // Отправляем приветственное сообщение с упоминанием бренда
                 setTimeout(() => {
-                    client.say(twitchSettings.twitchChannel, 'Привет всем! YaMusicBot by @pnsrc запущен. Используйте !track для получения информации о текущем треке 🎵');
+                    client.say(twitchSettings.twitchChannel, 'Hello everyone! YaMusicBot by @pnsrc is launched. Use !track to get information about the current track 🎵');
                 }, 2000);
             })
-            .catch(err => console.error('Ошибка подключения к Twitch:', err));
+            .catch(err => console.error('Twitch connection error:', err));
         
-        // Массив ключевых фраз для отслеживания
+        // Массив ключевых фраз для отслеживания (оставляем русские фразы для пользователей)
         const trackKeywords = ['какой трек', 'что играет', 'что за трек', 'что за музыка', '!track', '!трек'];
         
         // Обработка сообщений
@@ -84,27 +84,27 @@ function startTwitchBot() {
             const hasTrackKeyword = trackKeywords.some(keyword => lowerMsg.includes(keyword));
             
             if (hasTrackKeyword) {
-                console.log(`Запрос о треке от ${tags.username}`);
+                console.log(`Track request from ${tags.username}`);
 
                 // Получаем актуальные данные о треке из API
                 fetch(`http://localhost:${PORT}/api/currenttrack`)
                     .then(response => response.json())
                     .then(data => {
                         if (data && data.track && data.artist) {
-                            const response = `@${tags.username}, сейчас играет: ${data.artist} - ${data.track} 🎵`;
+                            const response = `@${tags.username}, now playing: ${data.artist} - ${data.track} 🎵`;
                             client.say(channel, response);
                         } else {
-                            client.say(channel, `@${tags.username}, информация о треке недоступна 😔`);
+                            client.say(channel, `@${tags.username}, track information unavailable 😔`);
                         }
                     })
                     .catch(err => {
-                        console.error('Ошибка получения данных о треке:', err);
-                        client.say(channel, `@${tags.username}, ошибка получения информации о треке 😔`);
+                        console.error('Error fetching track data:', err);
+                        client.say(channel, `@${tags.username}, error getting track information 😔`);
                     });
             }
         });
     } catch (error) {
-        console.error('Ошибка запуска Twitch-бота:', error);
+        console.error('Error launching Twitch bot:', error);
     }
 }
 
@@ -128,7 +128,7 @@ server.get('/api/currenttrack', (req, res) => {
 // Запуск сервера
 function startServer() {
   httpServer = server.listen(PORT, () => {
-    console.log(`Сервер запущен на http://localhost:${PORT}`);
+    console.log(`Server started on http://localhost:${PORT}`);
   });
 }
 
@@ -137,7 +137,7 @@ const iconPath = path.join(__dirname, 'icons/icon.png');
 
 // Проверим существование файла иконки при запуске
 if (!fs.existsSync(iconPath)) {
-  console.error(`Ошибка: Файл иконки не найден по пути: ${iconPath}`);
+  console.error(`Error: Icon file not found at path: ${iconPath}`);
 }
 
 // Создание основного окна с упрощенным скриптом извлечения информации о треке
@@ -290,7 +290,7 @@ function createTray() {
       mainWindow.isVisible() ? mainWindow.hide() : mainWindow.show();
     });
   } catch (error) {
-    console.error('Ошибка создания иконки в трее:', error);
+    console.error('Error creating tray icon:', error);
   }
 }
 
@@ -335,7 +335,7 @@ function createSettingsWindow() {
 let lastTrackInfo = {}; // Для отслеживания изменений трека
 
 ipcMain.on('track-info', (event, trackInfo) => {
-  console.log('Получена информация о треке:', trackInfo);
+  console.log('Track info received:', trackInfo);
   
   // Сохраняем информацию о текущем треке
   currentTrackInfo = trackInfo;
@@ -346,10 +346,10 @@ ipcMain.on('track-info', (event, trackInfo) => {
     
     // Отправляем уведомление о новом треке в чат Twitch
     if (client && client.readyState() === 'OPEN') {
-      const message = `Сейчас играет: ${trackInfo.artist} - ${trackInfo.track} 🎵`;
+      const message = `Now playing: ${trackInfo.artist} - ${trackInfo.track} 🎵`;
       client.say(twitchSettings.twitchChannel, message)
-        .then(() => console.log('Уведомление о новом треке отправлено'))
-        .catch(err => console.error('Ошибка отправки уведомления о треке:', err));
+        .then(() => console.log('New track notification sent'))
+        .catch(err => console.error('Error sending track notification:', err));
     }
     
     // Обновляем информацию о последнем треке
@@ -373,7 +373,7 @@ ipcMain.handle('get-settings', async () => {
 
 // Модифицируйте функцию ipcMain.on('save-settings')
 ipcMain.on('save-settings', (event, settings) => {
-  console.log('Сохранение настроек:', settings);
+  console.log('Saving settings:', settings);
   
   if (settings.apiUrl !== undefined) {
     apiUrl = settings.apiUrl;
@@ -428,6 +428,29 @@ function updateTwitchClient() {
     },
     channels: [twitchSettings.twitchChannel]
   });
+}
+
+// Функция для отправки данных в API
+async function sendTrackInfoToAPI(trackData) {
+  try {
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(trackData)
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error: ${response.status}`);
+    }
+    
+    const responseData = await response.json();
+    console.log("API response:", responseData);
+    
+  } catch (error) {
+    console.error("Error sending data to API:", error);
+  }
 }
 
 // Инициализация приложения
