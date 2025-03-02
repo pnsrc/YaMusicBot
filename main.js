@@ -81,7 +81,7 @@ function startTwitchBot() {
         // Массив ключевых фраз для отслеживания (оставляем русские фразы для пользователей)
         const trackKeywords = ['какой трек', 'что играет', 'что за трек', 'что за музыка', '!track', '!трек'];
         
-        // Обработка сообщений
+        // Обработка сообщений в Twitch-боте - вместо fetch используем прямой доступ к данным
         client.on('message', (channel, tags, message, self) => {
             if (self) return; // Игнорируем свои сообщения
             
@@ -93,21 +93,20 @@ function startTwitchBot() {
             if (hasTrackKeyword) {
                 console.log(`Track request from ${tags.username}`);
 
-                // Получаем актуальные данные о треке из API
-                fetch(`http://localhost:${PORT}/api/currenttrack`)
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data && data.track && data.artist) {
-                            const response = `@${tags.username}, сейчас играет: ${data.artist} - ${data.track} 🎵`;
-                            client.say(channel, response);
-                        } else {
-                            client.say(channel, `@${tags.username}, что-то пошло не так, и информация о треке не доступно 😔`);
-                        }
-                    })
-                    .catch(err => {
-                        console.error('Error fetching track data:', err);
-                        client.say(channel, `@${tags.username}, ошибка 😔`);
-                    });
+                try {
+                    // Вместо HTTP запроса используем прямой доступ к переменной
+                    if (currentTrackInfo && currentTrackInfo.track && currentTrackInfo.artist) {
+                        const response = `@${tags.username}, сейчас играет: ${currentTrackInfo.artist} - ${currentTrackInfo.track} 🎵`;
+                        client.say(channel, response);
+                        console.log('Track info sent to chat:', currentTrackInfo);
+                    } else {
+                        console.log('No valid track info available:', currentTrackInfo);
+                        client.say(channel, `@${tags.username}, что-то пошло не так, и информация о треке недоступна 😔`);
+                    }
+                } catch (err) {
+                    console.error('Error accessing track data:', err);
+                    client.say(channel, `@${tags.username}, ошибка 😔`);
+                }
             }
         });
     } catch (error) {
@@ -451,31 +450,55 @@ function createSettingsWindow() {
 // Обработка межпроцессорных сообщений - добавляем автоматическое оповещение
 let lastTrackInfo = {}; // Для отслеживания изменений трека
 
-// Модифицируем обработчик событий track-info чтобы учитывать настройку autoAnnounce
+// Модифицируем обработчик событий track-info для большей надежности
 ipcMain.on('track-info', (event, trackInfo) => {
   console.log('Track info received:', trackInfo);
   
-  // Сохраняем информацию о текущем треке
-  currentTrackInfo = trackInfo;
-  
-  // Проверяем, изменился ли трек и стоит ли отправить уведомление
-  if (twitchSettings.autoAnnounce && 
-      trackInfo && trackInfo.track && trackInfo.artist && 
-      (lastTrackInfo.track !== trackInfo.track || lastTrackInfo.artist !== trackInfo.artist)) {
-    
-    // Отправляем уведомление о новом треке в чат Twitch только если включен автоанонс
-    if (client && client.readyState() === 'OPEN') {
-      const message = `Сейчас играет: ${trackInfo.artist} - ${trackInfo.track} 🎵`;
-      client.say(twitchSettings.twitchChannel, message)
-        .then(() => console.log('New track notification sent'))
-        .catch(err => console.error('Error sending track notification:', err));
+  try {
+    // Проверка валидности данных
+    if (trackInfo && typeof trackInfo === 'object') {
+      // Сохраняем информацию о текущем треке с дополнительной проверкой
+      if (trackInfo.track && trackInfo.artist) {
+        // Очистка данных перед сохранением
+        currentTrackInfo = {
+          track: String(trackInfo.track).trim(),
+          artist: String(trackInfo.artist).trim(),
+          cover: trackInfo.cover || '',
+          url: trackInfo.url || '',
+          timestamp: trackInfo.timestamp || new Date().toISOString()
+        };
+        
+        // Сохраним также в файл для аварийного восстановления
+        const trackDataPath = path.join(app.getPath('userData'), 'lastTrack.json');
+        fs.writeFileSync(trackDataPath, JSON.stringify(currentTrackInfo));
+        
+        console.log('Track info saved:', currentTrackInfo);
+        
+        // Автоматическое оповещение
+        if (twitchSettings.autoAnnounce && 
+            (lastTrackInfo.track !== currentTrackInfo.track || lastTrackInfo.artist !== currentTrackInfo.artist)) {
+          
+          if (client && client.readyState() === 'OPEN') {
+            const message = `Сейчас играет: ${currentTrackInfo.artist} - ${currentTrackInfo.track} 🎵`;
+            client.say(twitchSettings.twitchChannel, message)
+              .then(() => console.log('New track notification sent'))
+              .catch(err => console.error('Error sending track notification:', err));
+          }
+          
+          // Обновляем информацию о последнем треке
+          lastTrackInfo = {
+            track: currentTrackInfo.track,
+            artist: currentTrackInfo.artist
+          };
+        }
+      } else {
+        console.warn('Received incomplete track info:', trackInfo);
+      }
+    } else {
+      console.error('Invalid track info format received');
     }
-    
-    // Обновляем информацию о последнем треке
-    lastTrackInfo = {
-      track: trackInfo.track,
-      artist: trackInfo.artist
-    };
+  } catch (error) {
+    console.error('Error processing track info:', error);
   }
 });
 
@@ -662,6 +685,24 @@ function updateTrayMenu() {
 
 // Инициализация приложения
 app.whenReady().then(() => {
+  // Загружаем последний известный трек
+  try {
+    const trackDataPath = path.join(app.getPath('userData'), 'lastTrack.json');
+    if (fs.existsSync(trackDataPath)) {
+      const savedTrackData = JSON.parse(fs.readFileSync(trackDataPath, 'utf8'));
+      if (savedTrackData && savedTrackData.track && savedTrackData.artist) {
+        currentTrackInfo = savedTrackData;
+        lastTrackInfo = {
+          track: savedTrackData.track,
+          artist: savedTrackData.artist
+        };
+        console.log('Loaded last track from storage:', currentTrackInfo);
+      }
+    }
+  } catch (error) {
+    console.error('Error loading last track data:', error);
+  }
+  
   // Настройка иконки для macOS
   if (process.platform === 'darwin') {
     app.dock.setIcon(iconPath);
